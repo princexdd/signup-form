@@ -1,44 +1,45 @@
-import { getIronSession } from 'iron-session';
-import { sessionOptions } from '@/lib/session';
-import clientPromise from '@/lib/mongodb';
+import { clientPromise } from '@/lib/mongodb';
+import bcrypt from 'bcryptjs';
 
-export async function POST(request) {
-  const { email } = await request.json();
-
-  if (!email) {
-    return new Response(JSON.stringify({ message: 'Email is required' }), {
-      status: 400,
-    });
-  }
-
+export async function POST(req) {
   try {
-    const client = await clientPromise;
-    const db = client.db('form');
-    const users = db.collection('users');
+    const { email, password } = await req.json();
 
-    const existing = await users.findOne({ email });
-    if (existing) {
-      return new Response(JSON.stringify({ message: 'Email already exists' }), {
+    if (!email || !password) {
+      return new Response(
+        JSON.stringify({ message: 'Email and password are required' }),
+        {
+          status: 400,
+        }
+      );
+    }
+
+    const client = await clientPromise;
+    const db = client.db();
+
+    const existingUser = await db.collection('users').findOne({ email });
+    if (existingUser) {
+      return new Response(JSON.stringify({ message: 'User already exists' }), {
         status: 409,
       });
     }
 
-    await users.insertOne({ email });
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-    // ✅ This response will carry the Set-Cookie header
-    const res = new Response(
+    await db.collection('users').insertOne({
+      email,
+      hashedPassword,
+    });
+
+    return new Response(
       JSON.stringify({ message: 'User registered successfully' }),
-      { status: 201 }
+      {
+        status: 201,
+      }
     );
-
-    const session = await getIronSession(request, res, sessionOptions);
-    session.user = { email };
-    await session.save();
-
-    return res; // ✅ Return the same response session was saved on
-  } catch (err) {
-    console.error('Signup Error:', err);
-    return new Response(JSON.stringify({ message: 'Server error' }), {
+  } catch (error) {
+    console.error('Signup error:', error);
+    return new Response(JSON.stringify({ message: 'Internal server error' }), {
       status: 500,
     });
   }
